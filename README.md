@@ -136,10 +136,7 @@ Ensure all dependencies are installed via `requirements.txt`.
 
 ## Contributors
 
-- [Your Name](https://github.com/your-username) - Creator and maintainer
+- [Shivansh Gupta](https://github.com/shivanshg29) - Creator and maintainer
 
 ---
 
-## License
-
-This project is licensed under the MIT License. See the `LICENSE` file for details.
