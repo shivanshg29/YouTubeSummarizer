@@ -12,7 +12,6 @@ An interactive application built using Django REST Framework to summarize YouTub
 - [Dependencies](#dependencies)
 - [Troubleshooting](#troubleshooting)
 - [Contributors](#contributors)
-- [License](#license)
 
 ---
 
