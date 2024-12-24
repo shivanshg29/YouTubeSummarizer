@@ -1,9 +1,8 @@
 from django.shortcuts import render
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
-from django.http import JsonResponse
-from pytube import YouTube
 from django.conf import settings
+import yt_dlp
 import assemblyai as aai
 from dotenv import load_dotenv
 import google.generativeai as genai
@@ -12,64 +11,65 @@ import os
 
 load_dotenv()
 
-# Create your views here.
+# Download audio-only using yt-dlp
+def download_audio(link):
+    output_path =settings.MEDIA_ROOT
+    os.makedirs(output_path, exist_ok=True)
+    ydl_opts = {
+        'outtmpl': os.path.join(output_path, '%(title)s.%(ext)s'),
+        'format': 'bestaudio', 
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info_dict = ydl.extract_info(link, download=True)
+        audio_path = ydl.prepare_filename(info_dict)
+        return audio_path
 
-# get yt title
-def get_Title(link):
-    yt=YouTube(link)
-    title=yt.title
-    return title
+# Get transcript from audio
+def get_transcript(audio_path):
+    aai.settings.api_key = os.getenv('ASSEMBLY_API_KEY')
 
-# download audio
-def get_audio(link):
-    yt=YouTube(link)
-    video = yt.streams.filter(only_audio=True).first()
-    out_file = video.download(output_path=settings.MEDIA_ROOT)
-    base, ext = os.path.splitext(out_file)
-    new_file = base + '.mp3'
-    os.rename(out_file, new_file)
-    return new_file
-
-# get transcript
-def get_transcript(link):
-    audio=get_audio(link)
-    aai.settings.api_key=os.getenv('Assembly_API_KEY')
-
-    transcriber=aai.Transcriber()
-    transcript=transcriber.transcribe(audio)
+    try:
+        transcriber = aai.Transcriber()
+        print("Getting Transcripts")
+        transcript = transcriber.transcribe(audio_path)
+        print("Got Transcripts")
+    except (KeyError, json.JSONDecodeError):
+        return Response({'error': 'Assembly AI API Issue'}, status=400)
 
     return transcript.text
 
-# use LLM api generate summary
+# Use LLM API to generate summary
 def generate_summary_llm(transcript):
-    genai.configure(os.getenv('Gemini_API_KEY'))
+    genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
     model = genai.GenerativeModel('gemini-pro')
-    prompt = f"Based on the following transcript from a YouTube video, write a Summary, write it based on the transcript, but dont make it look like a youtube video, summarize the transcript :\n\n{transcript}\n"
-    response = model.generate_content(prompt)
-    print(response.text)
+    prompt = f"Based on the following transcript from a YouTube video, write a summary. Make it professional:\n{transcript}"
+    try:
+        print("Generating Summary")
+        response = model.generate_content(prompt)
+        print("Generated Summary")
+    except (KeyError, json.JSONDecodeError):
+        return Response({'error': 'Gemini API Issue'}, status=400)
+    return response.text
 
-# return summary as json
-
-@api_view(['POST'])
+# Return summary as JSON
+@api_view(['get'])
 def get_summary(request):
-    if request.method=='POST':
-        try:
-            data=json.loads(request.body)
-            yt_link=data['link']
-        except (KeyError, json.JSONDecodeError):
-            return JsonResponse({'error': 'Invalid data sent'}, status=400)
-        
-        title=get_Title(yt_link)
-        transcript=get_transcript(yt_link)
-        if not transcript:
-            return JsonResponse({'error': " Failed to get transcript"}, status=500)
-        summary=get_summary(transcript)
-        if not summary:
-            return JsonResponse({'error': " Failed to generate blog article"}, status=500)
-        
-        return JsonResponse({'content':summary})
-    else:
-        return JsonResponse({'error': 'Invalid request method'}, status=405)
+    try:
+        yt_link = request.query_params.get('link')
+        if not yt_link:
+            return Response({'error': 'YouTube link is required'}, status=400)
+    except (KeyError, json.JSONDecodeError):
+        return Response({'error': 'Invalid data sent'}, status=400)
     
-        
-        
+    try:
+        audio_path = download_audio(yt_link)
+        transcript = get_transcript(audio_path)
+        os.remove(audio_path)
+        if not transcript:
+            return Response({'error': "Failed to get transcript"}, status=500)
+        summary = generate_summary_llm(transcript)
+        if not summary:
+            return Response({'error': "Failed to generate summary"}, status=500)
+        return Response({'content': summary})
+    except Exception as e:
+        return Response({'error': str(e)}, status=500)
