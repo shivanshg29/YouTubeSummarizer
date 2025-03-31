@@ -13,16 +13,32 @@ load_dotenv()
 
 # Download audio-only using yt-dlp
 def download_audio(link):
-    output_path =settings.MEDIA_ROOT
+    output_path = settings.MEDIA_ROOT
+    
+    # Ensure output directory exists
     os.makedirs(output_path, exist_ok=True)
+
+    # Clean the output directory before starting the download
+    for file_name in os.listdir(output_path):
+        file_path = os.path.join(output_path, file_name)
+        if os.path.isfile(file_path):
+            os.remove(file_path)
+
     ydl_opts = {
         'outtmpl': os.path.join(output_path, '%(title)s.%(ext)s'),
-        'format': 'bestaudio', 
+        'format': 'worst*', 
+        'noplaylist': True,
     }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info_dict = ydl.extract_info(link, download=True)
-        audio_path = ydl.prepare_filename(info_dict)
-        return audio_path
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info_dict = ydl.extract_info(link, download=True)
+            audio_path = ydl.prepare_filename(info_dict)
+            return audio_path
+    except Exception as e:
+        # If an error occurs, you can log or print the error message
+        print(f"An error occurred: {e}")
+        return None
 
 # Get transcript from audio
 def get_transcript(audio_path):
@@ -41,8 +57,8 @@ def get_transcript(audio_path):
 # Use LLM API to generate summary
 def generate_summary_llm(transcript):
     genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
-    model = genai.GenerativeModel('gemini-pro')
-    prompt = f"Based on the following transcript from a YouTube video, write a summary. Make it professional:\n{transcript}"
+    model = genai.GenerativeModel('gemini-2.0-flash')
+    prompt = f'{transcript} TASK: TL;DR/SUMMARY of TEXT in JSON. JSON keys: "titles" (array of strings): 2-5 appropriate titles for TEXT; "tags" (string): tag cloud; "entities" (array of {"name", "description"} objects): named entities, including persons, organizations, processes, etc. their detailed description and relationships; "short_summaries" (array of strings): one-two sentence summaries of TEXT; "style" (string): type, sentiment and writing style of TEXT; "arguments" (array of strings): 5-10 main arguments of TEXT; "summary" (string): detailed summary of TEXT; "Notes"(string):Detailed text for the video to study & analyse each & every point in detail Explain the concept in a precise & elaborated manner;'
     try:
         print("Generating Summary")
         response = model.generate_content(prompt)
